@@ -2,6 +2,7 @@ import { encode as encodeJpeg } from '@jsquash/jpeg'
 import { optimise as optimisePng } from '@jsquash/oxipng'
 import { encode as encodeWebp } from '@jsquash/webp'
 import { encode as encodeAvif } from '@jsquash/avif'
+import dayjs from 'dayjs'
 import { filesize } from 'filesize'
 import { COMPRESSIBLE_IMAGE_RE, IMAGE_RE, MAX_UPLOAD_SIZE } from './constants.js'
 import { t } from './i18n.js'
@@ -9,7 +10,13 @@ import { ConfigManager } from './config-manager.js'
 import { FileExplorer } from './file-explorer.js'
 import { R2Client } from './r2-client.js'
 import { UIManager } from './ui-manager.js'
-import { $, applyFilenameTemplate, getFileName, getMimeType } from './utils.js'
+import {
+  $,
+  applyFilenameTemplate,
+  computeFileHash,
+  getFileName,
+  getMimeType,
+} from './utils.js'
 
 /** @typedef {{ accountId?: string; accessKeyId?: string; secretAccessKey?: string; bucket?: string; filenameTpl?: string; filenameTplScope?: string; customDomain?: string; compressMode?: string; compressLevel?: string; tinifyKey?: string }} AppConfig */
 
@@ -172,19 +179,40 @@ class UploadManager {
     const app = $('#app')
     const dropzone = $('#dropzone')
 
-    app.addEventListener('dragenter', e => {
-      e.preventDefault()
+    const showDropzone = () => {
       this.#dragCounter++
       dropzone.hidden = false
-    })
+    }
 
-    app.addEventListener('dragleave', e => {
-      e.preventDefault()
+    const hideDropzone = () => {
       this.#dragCounter--
       if (this.#dragCounter <= 0) {
         this.#dragCounter = 0
         dropzone.hidden = true
       }
+    }
+
+    const handleDrop = (/** @type {DragEvent} */ e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      this.#dragCounter = 0
+      dropzone.hidden = true
+      const files = [...(e.dataTransfer?.files ?? [])]
+      if (files.length > 0) {
+        this.uploadFiles(files)
+      } else {
+        this.#ui.toast(t('dropInvalidHint'), 'info')
+      }
+    }
+
+    app.addEventListener('dragenter', e => {
+      e.preventDefault()
+      showDropzone()
+    })
+
+    app.addEventListener('dragleave', e => {
+      e.preventDefault()
+      hideDropzone()
     })
 
     app.addEventListener('dragover', (/** @type {DragEvent} */ e) => {
@@ -192,36 +220,122 @@ class UploadManager {
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
     })
 
-    app.addEventListener('drop', (/** @type {DragEvent} */ e) => {
+    app.addEventListener('drop', handleDrop)
+
+    dropzone.addEventListener('dragenter', e => {
       e.preventDefault()
-      this.#dragCounter = 0
-      dropzone.hidden = true
-      const files = [...(e.dataTransfer?.files ?? [])]
-      if (files.length > 0) this.uploadFiles(files)
+      showDropzone()
     })
 
-    document.addEventListener('paste', e => {
+    dropzone.addEventListener('dragleave', e => {
+      e.preventDefault()
+      hideDropzone()
+    })
+
+    dropzone.addEventListener('dragover', (/** @type {DragEvent} */ e) => {
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    })
+
+    dropzone.addEventListener('drop', handleDrop)
+
+    document.addEventListener('paste', async e => {
       const target = /** @type {HTMLElement} */ (e.target)
       const tag = target.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return
 
       const items = [...(e.clipboardData?.items || [])]
+      const htmlText = e.clipboardData?.getData('text/html') || ''
+      const plainText = e.clipboardData?.getData('text/plain') || ''
+      const hasHtml = Boolean(htmlText.trim())
+      const hasText = Boolean(plainText.trim() || hasHtml)
+      const hasImageItem = items.some(item => item.kind === 'file' && item.type.startsWith('image/'))
+      const hasHtmlImage = hasHtml && /<img[\s>]/i.test(htmlText)
+
       /** @type {File[]} */
       const files = items
         .filter(item => item.kind === 'file')
         .map(item => item.getAsFile())
         .filter(/** @returns {f is File} */ f => f !== null)
 
+      if ((hasImageItem || hasHtmlImage) && hasText) {
+        this.#ui.toast(t('pasteMixedNotSupported'), 'info')
+        return
+      }
+
       if (files.length > 0) {
         e.preventDefault()
-        this.#ui.toast(t('pasteToUpload', { count: files.length }), 'info')
+        const allImages = files.every(f => f.type.startsWith('image/'))
+        if (allImages) {
+          this.#ui.toast(t('pasteToUpload', { count: files.length }), 'info')
+          this.uploadFiles(files)
+          return
+        }
+
+        if (files.length === 1) {
+          const file = files[0]
+          const ok = await this.#ui.confirm(
+            t('pasteFileConfirmTitle'),
+            t('pasteFileConfirmMsg', { name: file.name }),
+          )
+          if (!ok) return
+          const suggestedPath = this.#explorer.currentPrefix + file.name
+          const targetPath = await this.#ui.prompt(
+            t('pasteFilePathTitle'),
+            t('pasteFilePathLabel'),
+            suggestedPath,
+          )
+          if (!targetPath) return
+          await this.uploadFiles([file], targetPath)
+          return
+        }
+
+        const ok = await this.#ui.confirm(
+          t('pasteFilesConfirmTitle'),
+          t('pasteFilesConfirmMsg', { count: files.length }),
+        )
+        if (!ok) return
         this.uploadFiles(files)
+        return
+      }
+
+      if (hasText) {
+        e.preventDefault()
+        let content = plainText
+        if (!content.trim() && hasHtml) {
+          const doc = new DOMParser().parseFromString(htmlText, 'text/html')
+          content = doc.body?.textContent || ''
+        }
+        content = content.trim()
+        if (!content) return
+
+        const ok = await this.#ui.confirm(t('pasteTextConfirmTitle'), t('pasteTextConfirmMsg'))
+        if (!ok) return
+
+        const cfg = this.#config.get()
+        let filename = `pasted-${dayjs().format('YYYYMMDD-HHmmss')}.txt`
+        if ((cfg.filenameTplScope || 'images') === 'images') {
+          const tempFile = new File([content], 'pasted.txt', { type: 'text/plain' })
+          const hash = await computeFileHash(tempFile)
+          filename = `${hash.slice(0, 6)}.txt`
+        }
+
+        const suggestedPath = this.#explorer.currentPrefix + filename
+        const targetPath = await this.#ui.prompt(
+          t('pasteTextPathTitle'),
+          t('pasteTextPathLabel'),
+          suggestedPath,
+        )
+        if (!targetPath) return
+
+        const file = new File([content], filename, { type: 'text/plain' })
+        await this.uploadFiles([file], targetPath)
       }
     })
   }
 
-  /** @param {File[]} files */
-  async uploadFiles(files) {
+  /** @param {File[]} files @param {string} [overrideKey] */
+  async uploadFiles(files, overrideKey) {
     const panel = $('#upload-panel')
     const body = $('#upload-panel-body')
     const title = $('#upload-panel-title')
@@ -236,6 +350,7 @@ class UploadManager {
     /** @type {'template'|'prefix-template'|'prefix-basename'} */
     let pathStrategy = 'prefix-template'
     let pathStrategyChosen = false
+    const useOverrideKey = Boolean(overrideKey && files.length === 1)
 
     const uploads = []
     title.textContent = `${t('uploadProgress')} 0/${files.length}`
@@ -297,7 +412,9 @@ class UploadManager {
       }
 
       let key
-      if (pathStrategy === 'template') {
+      if (useOverrideKey) {
+        key = /** @type {string} */ (overrideKey)
+      } else if (pathStrategy === 'template') {
         key = processedName
       } else if (pathStrategy === 'prefix-basename') {
         key = currentPrefix + getFileName(processedName)
