@@ -1610,12 +1610,12 @@
   .config-tab-panels {
     margin-top: var(--sp-2);
     padding: var(--sp-2);
-    height: 420px;
+    height: 480px;
     overflow-y: auto;
     overflow-x: hidden;
 
     @media (width <= 768px) {
-      height: 360px;
+      height: 380px;
     }
 
     @media (width <= 640px) {
