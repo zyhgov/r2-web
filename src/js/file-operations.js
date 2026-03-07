@@ -24,7 +24,6 @@ class FileOperations {
   async rename(key, isFolder) {
     const oldName = extractFileName(key)
     const newName = await this.#ui.prompt(t('renameTitle'), t('renameLabel'), oldName, {
-      hint: t('r2CopyHint'),
       validate: (v) => {
         const illegal = v.match(/[/\\:*?"<>|\x00-\x1F]/g)
         if (illegal) return t('renameInvalidChars', { chars: [...new Set(illegal)].join('  ') })
@@ -75,6 +74,7 @@ class FileOperations {
       validate: (v) => {
         const illegal = v.match(/[\\:*?"<>|\x00-\x1F]/g)
         if (illegal) return t('pathInvalidChars', { chars: [...new Set(illegal)].join('  ') })
+        if (v === key) return t('copySamePath')
         return null
       },
     })
@@ -123,7 +123,6 @@ class FileOperations {
     }
 
     const destFolder = await this.#ui.prompt(t('moveTitle'), t('moveLabel'), currentPrefix, {
-      hint: t('r2CopyHint'),
       preview: (v) => '→ ' + resolveDest(v),
       validate: (v) => (resolveDest(v) === key ? t('moveSamePath') : null),
     })
