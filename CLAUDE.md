@@ -117,7 +117,7 @@ pnpm add -D package-name@x.y.z
 | `FileExplorer`   | `file-explorer.js`   | 目录导航、排序、分页、懒加载缩略图、列表缓存 |
 | `UploadManager`  | `upload-manager.js`  | 拖拽/粘贴上传、文件名模板、图片压缩          |
 | `FilePreview`    | `file-preview.js`    | 图片/视频/音频/文本预览                      |
-| `FileOperations` | `file-operations.js` | 重命名、复制、移动、删除（递归删除目录）   |
+| `FileOperations` | `file-operations.js` | 重命名、复制、移动、删除（递归删除目录）     |
 | `App`            | `app.js`             | 主协调器、i18n 处理                          |
 
 **应用初始化** 在 `src/main.js`：
@@ -330,7 +330,7 @@ R2 桶必须配置 CORS 允许应用域名（详见 `readme.md`）。
 | `headObject(key)`                        | 获取对象元数据（HEAD）           |
 | `deleteObject(key)`                      | 删除对象                         |
 | `copyObject(src, dest)`                  | 复制对象                         |
-| `createFolder(prefix)`                   | 创建目录（零字节对象）         |
+| `createFolder(prefix)`                   | 创建目录（零字节对象）           |
 
 所有请求通过 AWS Signature Version 4 签名（`aws4fetch` 库）。
 

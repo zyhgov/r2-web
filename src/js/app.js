@@ -685,8 +685,12 @@ class App {
       if (e.target === previewDialog) previewDialog.close()
     })
     $('#preview-download').addEventListener('click', () => /** @type {FilePreview} */ (this.#preview).downloadCurrent())
-    $('#preview-copy-text').addEventListener('click', () => /** @type {FilePreview} */ (this.#preview).copyCurrentText())
-    $('#preview-copy-image').addEventListener('click', () => /** @type {FilePreview} */ (this.#preview).copyCurrentImage())
+    $('#preview-copy-text').addEventListener('click', () =>
+      /** @type {FilePreview} */ (this.#preview).copyCurrentText(),
+    )
+    $('#preview-copy-image').addEventListener('click', () =>
+      /** @type {FilePreview} */ (this.#preview).copyCurrentImage(),
+    )
     $('#preview-copy').addEventListener('click', () => /** @type {FilePreview} */ (this.#preview).copyCurrentLink())
 
     $('#upload-panel-close').addEventListener('click', () => {

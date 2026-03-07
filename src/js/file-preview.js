@@ -149,7 +149,7 @@ class FilePreview {
           canvas.width = img.naturalWidth
           canvas.height = img.naturalHeight
           canvas.getContext('2d').drawImage(img, 0, 0)
-          canvas.toBlob(b => (b ? resolve(b) : reject(new Error())), 'image/png')
+          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error())), 'image/png')
           URL.revokeObjectURL(img.src)
         }
         img.onerror = reject
